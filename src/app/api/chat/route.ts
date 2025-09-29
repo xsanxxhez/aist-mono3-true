@@ -9,7 +9,26 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { messages } = await request.json();
+    const { messages, chatId, fileContext } = await request.json();
+
+    console.log('💬 [chat] Получен запрос:', {
+      chatId,
+      fileContextLength: fileContext?.length || 0,
+      fileContextPreview: fileContext?.substring(0, 100) || 'нет',
+      messagesCount: messages.length
+    });
+
+    // Создаем системный промпт с учетом контекста файла
+    let systemMessage = 'Ты полезный AI-ассистент. Отвечай подробно и помогай пользователю. Поддерживай контекст разговора.';
+    
+    if (fileContext) {
+      systemMessage += `\n\nПользователь загрузил файл со следующим содержимым:\n${fileContext}\n\nОтвечай на вопросы учитывая содержимое файла. Если в файле нет информации для ответа, сообщи об этом.`;
+      console.log('📋 [chat] Контекст файла добавлен в системный промпт');
+    } else {
+      console.log('⚠️ [chat] Контекст файла отсутствует');
+    }
+
+    console.log('🔧 [chat] Системный промпт (первые 200 символов):', systemMessage.substring(0, 200));
 
     // Отправляем запрос к OpenRouter
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -23,7 +42,7 @@ export async function POST(request: NextRequest) {
         messages: [
           {
             role: 'system',
-            content: 'Ты полезный AI-ассистент. Отвечай подробно и помогай пользователю. Поддерживай контекст разговора.'
+            content: systemMessage
           },
           ...messages
         ],
@@ -33,19 +52,23 @@ export async function POST(request: NextRequest) {
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ [chat] OpenRouter ошибка:', errorText);
       throw new Error(`OpenRouter error: ${response.statusText}`);
     }
 
     const data = await response.json();
     const assistantMessage = data.choices[0].message.content;
 
+    console.log('✅ [chat] Получен ответ от AI, длина:', assistantMessage.length);
+
     return NextResponse.json({ 
       message: assistantMessage,
-      chatId: 'temp-' + Date.now()
+      chatId: chatId || 'temp-' + Date.now()
     });
 
   } catch (error) {
-    console.error('Chat API error:', error);
+    console.error('❌ [chat] Ошибка:', error);
     return NextResponse.json(
       { error: 'Ошибка при обращении к AI' },
       { status: 500 }
