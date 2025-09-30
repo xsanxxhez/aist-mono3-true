@@ -7,6 +7,8 @@ import { useEffect, useState, useRef } from 'react'
 type Message = {
   role: 'user' | 'assistant'
   content: string
+  timestamp: Date
+  html?: string // HTML версия сообщения для markdown
 }
 
 type FileContext = {
@@ -14,6 +16,51 @@ type FileContext = {
   filename: string
   fileType: string
 }
+
+// SVG иконки (замена для lucide-react)
+const SendIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+  </svg>
+)
+
+const UploadIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+  </svg>
+)
+
+const CloseIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M18 6L6 18M6 6l12 12"/>
+  </svg>
+)
+
+const LogoutIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+  </svg>
+)
+
+const FileIcon = () => (
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+    <polyline points="14,2 14,8 20,8"/>
+  </svg>
+)
+
+const LoadingSpinner = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" strokeLinecap="round"/>
+  </svg>
+)
+
+const UserIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+    <circle cx="12" cy="7" r="4"/>
+  </svg>
+)
 
 export default function ChatPage() {
   const { data: session, status } = useSession()
@@ -23,8 +70,9 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [chatId, setChatId] = useState<string | null>(null)
   const [fileContext, setFileContext] = useState<FileContext | null>(null)
-  const [uploadStatus, setUploadStatus] = useState<string>('')
+  const [isDragging, setIsDragging] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -44,7 +92,11 @@ export default function ChatPage() {
     e.preventDefault()
     if (!input.trim() || isLoading) return
 
-    const userMessage: Message = { role: 'user', content: input }
+    const userMessage: Message = {
+      role: 'user',
+      content: input,
+      timestamp: new Date()
+    }
     const newMessages = [...messages, userMessage]
     setMessages(newMessages)
     setInput('')
@@ -69,28 +121,33 @@ export default function ChatPage() {
       }
 
       const data = await response.json()
-      setMessages([...newMessages, { role: 'assistant', content: data.message }])
-      
+      setMessages([...newMessages, {
+        role: 'assistant',
+        content: data.message,
+        html: data.messageHtml, // HTML версия для markdown
+        timestamp: new Date()
+      }])
+
       if (data.chatId && !chatId) {
         setChatId(data.chatId)
       }
     } catch (error) {
-      console.error('❌ [UI] Ошибка:', error)
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: `Ошибка: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}` 
+      console.error('Ошибка:', error)
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Ошибка: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`,
+        timestamp: new Date()
       }])
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
+  const handleFileUpload = async (file: File) => {
     if (!file) return
 
-    console.log('📁 [UI] Начало загрузки файла:', file.name, file.type, file.size);
-    setUploadStatus('Загрузка...');
+    console.log('Загрузка файла:', file.name)
+    setIsLoading(true)
 
     const formData = new FormData()
     formData.append('file', file)
@@ -108,77 +165,79 @@ export default function ChatPage() {
       }
 
       const data = await response.json()
-      console.log('✅ [UI] Файл загружен, ответ:', data);
-      
-      // Сохраняем контекст файла
+
       setFileContext({
         content: data.file.content,
         filename: data.file.originalName,
         fileType: data.file.mimeType
-      });
-
-      setUploadStatus('Успешно!');
+      })
 
       // Добавляем сообщение о загруженном файле
-      const getFileIcon = (mimeType: string) => {
-        if (mimeType === 'application/pdf') return '📕';
-        if (mimeType.includes('word')) return '📘';
-        return '📄';
-      };
-
-      const fileIcon = getFileIcon(data.file.mimeType);
-      
-      // Создаем информативное сообщение о файле
-      let fileInfo = `${fileIcon} Загружен файл: ${data.file.originalName}\n\n`;
-      
-      if (data.file.content.startsWith('[') && data.file.content.endsWith(']')) {
-        // Если это сообщение об ошибке или информации
-        fileInfo += `Статус: ${data.file.content}`;
-      } else {
-        // Если это реальное содержимое файла
-        fileInfo += `Содержимое файла (первые 1000 символов):\n${data.file.content.substring(0, 1000)}`;
-        if (data.file.content.length > 1000) {
-          fileInfo += '\n... [файл продолжается]';
-        }
+      const fileMessage: Message = {
+        role: 'user',
+        content: `📎 Загружен файл: ${data.file.originalName}`,
+        timestamp: new Date()
       }
+      setMessages(prev => [...prev, fileMessage])
 
-      const fileMessage: Message = { 
-        role: 'user', 
-        content: fileInfo
-      };
-      setMessages(prev => [...prev, fileMessage]);
-      
-      setTimeout(() => setUploadStatus(''), 3000);
     } catch (error) {
-      console.error('❌ [UI] Ошибка загрузки:', error)
-      setUploadStatus('Ошибка!');
+      console.error('Ошибка загрузки:', error)
       alert(`Ошибка при загрузке файла: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`)
-      setTimeout(() => setUploadStatus(''), 3000);
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleFileInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) handleFileUpload(file)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      handleFileUpload(files[0])
     }
   }
 
   const clearFileContext = () => {
-    setFileContext(null);
-    setUploadStatus('Контекст очищен');
-    setTimeout(() => setUploadStatus(''), 2000);
+    setFileContext(null)
   }
 
-  const getFileTypeBadge = (fileType: string) => {
-    if (fileType === 'application/pdf') return 'PDF';
-    if (fileType.includes('word')) return 'Word';
-    return 'Текст';
-  };
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('ru-RU', {
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
 
-  const getFileTypeColor = (fileType: string) => {
-    if (fileType === 'application/pdf') return 'bg-red-100 text-red-800';
-    if (fileType.includes('word')) return 'bg-blue-100 text-blue-800';
-    return 'bg-green-100 text-green-800';
-  };
+  const getFileIcon = (fileType: string) => {
+    if (fileType === 'application/pdf') return '📕'
+    if (fileType.includes('word')) return '📘'
+    if (fileType.includes('image')) return '🖼️'
+    return '📄'
+  }
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-xl">Загрузка...</div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-white text-lg font-light">Загрузка...</p>
+        </div>
       </div>
     )
   }
@@ -188,153 +247,232 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-xl font-semibold">AIst Chat</h1>
+    <div className="h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col">
+      {/* Header */}
+      <header className="border-b border-white/10 bg-white/5 backdrop-blur-xl">
+        <div className="h-16 px-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">AI</span>
+              </div>
+              <h1 className="text-xl font-bold text-white">/AIST</h1>
+            </div>
+
             {fileContext && (
-              <div className={`text-sm px-2 py-1 rounded flex items-center gap-2 ${getFileTypeColor(fileContext.fileType)}`}>
-                <span>
-                  {fileContext.fileType === 'application/pdf' ? '📕' : 
-                   fileContext.fileType.includes('word') ? '📘' : '📄'}
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-white/10 rounded-full border border-white/20">
+                <span className="text-sm">{getFileIcon(fileContext.fileType)}</span>
+                <span className="text-white text-sm font-medium max-w-xs truncate">
+                  {fileContext.filename}
                 </span>
-                <span className="max-w-xs truncate">{fileContext.filename}</span>
-                <span className="text-xs bg-white bg-opacity-50 px-1 rounded">
-                  {getFileTypeBadge(fileContext.fileType)}
-                </span>
+                <button
+                  onClick={clearFileContext}
+                  className="text-white/60 hover:text-white transition-colors"
+                >
+                  <CloseIcon />
+                </button>
               </div>
             )}
-            <span className="text-sm text-gray-600">Привет, {session.user?.name}!</span>
-            <img 
-              src={session.user?.image || ''} 
-              alt="Profile" 
-              className="w-8 h-8 rounded-full"
-            />
-            <button 
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <img
+                src={session.user?.image || ''}
+                alt="Profile"
+                className="w-8 h-8 rounded-full border-2 border-white/20"
+              />
+              <span className="text-white text-sm font-medium hidden sm:block">
+                {session.user?.name}
+              </span>
+            </div>
+            <button
               onClick={() => signOut()}
-              className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1 rounded border"
+              className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-all duration-200"
+              title="Выйти"
             >
-              Выйти
+              <LogoutIcon />
             </button>
           </div>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
-          <div className="bg-white rounded-lg shadow-sm border h-[600px] flex flex-col">
-            <div className="flex-1 p-4 overflow-y-auto">
-              {messages.length === 0 ? (
-                <div className="text-center text-gray-500 mt-8">
-                  <div className="text-2xl mb-2">👋</div>
-                  <p>Задайте ваш первый вопрос AI-ассистенту!</p>
-                  <div className="text-sm mt-4 space-y-1">
-                    <p>📄 Поддерживаемые форматы:</p>
-                    <div className="flex justify-center gap-4 mt-2">
-                      <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">Текстовые файлы</span>
-                      <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">Word документы</span>
-                      <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs">PDF файлы</span>
-                    </div>
-                  </div>
-                  {fileContext && (
-                    <div className="mt-4 p-2 bg-blue-50 rounded">
-                      <p className="text-blue-800">
-                        {fileContext.fileType === 'application/pdf' ? '📕' : 
-                         fileContext.fileType.includes('word') ? '📘' : '📄'} 
-                        Активный файл: {fileContext.filename}
-                      </p>
-                      <button 
-                        onClick={clearFileContext}
-                        className="text-sm text-blue-600 underline mt-1"
-                      >
-                        Очистить контекст
-                      </button>
-                    </div>
-                  )}
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col min-h-0">
+        {/* Messages */}
+        <div
+          className={`flex-1 overflow-y-auto p-6 transition-all duration-200 ${
+            isDragging ? 'bg-blue-500/10 border-2 border-dashed border-blue-400' : ''
+          }`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <div className="max-w-4xl mx-auto space-y-6">
+            {messages.length === 0 ? (
+              <div className="text-center text-white/60 mt-20 space-y-6">
+                <div className="w-24 h-24 mx-auto bg-white/5 rounded-3xl flex items-center justify-center border border-white/10">
+                  <FileIcon />
                 </div>
-              ) : (
-                messages.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`mb-4 ${
-                      message.role === 'user' ? 'text-right' : 'text-left'
-                    }`}
-                  >
-                    <div
-                      className={`inline-block px-4 py-2 rounded-lg max-w-[80%] whitespace-pre-wrap ${
-                        message.role === 'user'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-200 text-gray-800'
-                      }`}
-                    >
-                      {message.content}
+                <div className="space-y-3">
+                  <h2 className="text-2xl font-light text-white">Добро пожаловать в /AIST</h2>
+                  <p className="text-lg">Задайте вопрос или загрузите файл для начала работы</p>
+                  <div className="flex justify-center gap-4 pt-4">
+                    <div className="text-sm bg-white/5 px-3 py-2 rounded-lg border border-white/10">
+                      📄 PDF, Word, Текст
                     </div>
-                  </div>
-                ))
-              )}
-              {isLoading && (
-                <div className="text-left mb-4">
-                  <div className="inline-block px-4 py-2 rounded-lg bg-gray-200 text-gray-800">
-                    <div className="flex space-x-2">
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                    <div className="text-sm bg-white/5 px-3 py-2 rounded-lg border border-white/10">
+                      🖼️ Изображения
                     </div>
                   </div>
                 </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <form onSubmit={handleSubmit} className="p-4 border-t">
-              <div className="flex gap-2 mb-2">
-                <input
-                  type="file"
-                  onChange={handleFileUpload}
-                  className="border rounded-lg px-4 py-2 flex-1"
-                  accept=".txt,.md,.json,.pdf,.doc,.docx"
-                />
-                {uploadStatus && (
-                  <span className={`px-3 py-2 rounded ${
-                    uploadStatus.includes('Ошибка') ? 'bg-red-100 text-red-800' : 
-                    uploadStatus.includes('Успешно') ? 'bg-green-100 text-green-800' : 
-                    'bg-blue-100 text-blue-800'
-                  }`}>
-                    {uploadStatus}
-                  </span>
-                )}
-                {fileContext && (
-                  <button
-                    type="button"
-                    onClick={clearFileContext}
-                    className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
-                  >
-                    Очистить
-                  </button>
-                )}
               </div>
-              <div className="flex gap-2">
+            ) : (
+              messages.map((message, index) => (
+                <div
+                  key={index}
+                  className={`flex gap-4 ${
+                    message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
+                  }`}
+                >
+                  {/* Avatar */}
+                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                    message.role === 'user'
+                      ? 'bg-gradient-to-r from-blue-500 to-purple-600'
+                      : 'bg-gradient-to-r from-gray-600 to-gray-700'
+                  }`}>
+                    {message.role === 'user' ? (
+                      <UserIcon />
+                    ) : (
+                      <div className="w-3 h-3 bg-white rounded-sm"></div>
+                    )}
+                  </div>
+
+                  {/* Message */}
+                  <div className={`flex flex-col gap-2 max-w-[70%] ${
+                    message.role === 'user' ? 'items-end' : 'items-start'
+                  }`}>
+                    <div className={`px-4 py-3 rounded-2xl ${
+                      message.role === 'user'
+                        ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white'
+                        : 'bg-white/10 text-white backdrop-blur-xl border border-white/20'
+                    }`}>
+                      {message.html ? (
+                        <div
+                          className="prose prose-invert max-w-none break-words"
+                          dangerouslySetInnerHTML={{ __html: message.html }}
+                        />
+                      ) : (
+                        <div className="whitespace-pre-wrap break-words">
+                          {message.content}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-xs text-white/40 px-1">
+                      {formatTime(message.timestamp)}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+
+            {/* Loading Indicator */}
+            {isLoading && (
+              <div className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-gray-600 to-gray-700 flex items-center justify-center">
+                  <div className="w-3 h-3 bg-white rounded-sm"></div>
+                </div>
+                <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl px-4 py-3">
+                  <div className="flex space-x-2">
+                    <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {/* Input Area */}
+        <div className="border-t border-white/10 bg-white/5 backdrop-blur-xl p-6">
+          <div className="max-w-4xl mx-auto">
+            {/* File Context Bar */}
+            {fileContext && (
+              <div className="flex items-center justify-between mb-4 p-3 bg-white/10 rounded-xl border border-white/20">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
+                    <span className="text-sm">{getFileIcon(fileContext.fileType)}</span>
+                  </div>
+                  <div>
+                    <p className="text-white text-sm font-medium">{fileContext.filename}</p>
+                    <p className="text-white/40 text-xs">Файл загружен</p>
+                  </div>
+                </div>
+                <button
+                  onClick={clearFileContext}
+                  className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="flex gap-3">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileInput}
+                className="hidden"
+                accept=".txt,.md,.json,.pdf,.doc,.docx,image/*"
+              />
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                className="flex-shrink-0 w-12 h-12 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl flex items-center justify-center text-white/60 hover:text-white transition-all duration-200 disabled:opacity-50"
+              >
+                <UploadIcon />
+              </button>
+
+              <div className="flex-1 relative">
                 <input
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Введите ваш вопрос..."
-                  className="flex-1 border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full h-12 bg-white/10 border border-white/20 rounded-xl px-4 pr-12 text-black placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all duration-200 backdrop-blur-xl"
                   disabled={isLoading}
                 />
-                <button 
-                  type="submit"
-                  disabled={isLoading || !input.trim()}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isLoading ? '...' : 'Отправить'}
-                </button>
               </div>
+
+              <button
+                type="submit"
+                disabled={isLoading || !input.trim()}
+                className="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 rounded-xl flex items-center justify-center text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/25"
+              >
+                {isLoading ? (
+                  <LoadingSpinner />
+                ) : (
+                  <SendIcon />
+                )}
+              </button>
             </form>
+
+            {/* Drag & Drop Hint */}
+            {isDragging && (
+              <div className="absolute inset-0 bg-blue-500/10 border-2 border-dashed border-blue-400 rounded-xl flex items-center justify-center pointer-events-none">
+                <div className="text-center text-blue-400">
+                  <UploadIcon />
+                  <p className="text-lg font-medium">Отпустите файл для загрузки</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }

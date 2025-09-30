@@ -38,7 +38,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     console.error('❌ [chat] Ошибка удаления:', error);
     
-    if ((error as any).code === 'P2025') {
+    if ((error as unknown).code === 'P2025') {
       return NextResponse.json(
         { error: 'Чат не найден' },
         { status: 404 }

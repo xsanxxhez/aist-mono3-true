@@ -1,9 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
+import { remark } from 'remark';
+import html from 'remark-html';
+
+// Функция для преобразования markdown в HTML
+async function markdownToHtml(markdown: string): Promise<string> {
+  try {
+    const result = await remark().use(html).process(markdown);
+    return result.toString();
+  } catch (error) {
+    console.error('❌ [markdown] Ошибка преобразования:', error);
+    return markdown; // Возвращаем оригинал в случае ошибки
+  }
+}
+
+// Функция для очистки HTML от потенциально опасных тегов
+function sanitizeHtml(html: string): string {
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/on\w+="[^"]*"/g, '')
+    .replace(/on\w+='[^']*'/g, '')
+    .replace(/javascript:/gi, '');
+}
 
 export async function POST(request: NextRequest) {
   const token = await getToken({ req: request });
-  
+
   if (!token?.sub) {
     return NextResponse.json({ error: 'Не авторизован' }, { status: 401 });
   }
@@ -19,8 +41,8 @@ export async function POST(request: NextRequest) {
     });
 
     // Создаем системный промпт с учетом контекста файла
-    let systemMessage = 'Ты полезный AI-ассистент. Отвечай подробно и помогай пользователю. Поддерживай контекст разговора.';
-    
+    let systemMessage = 'Ты полезный AI-ассистент. Отвечай подробно и помогай пользователю. Поддерживай контекст разговора. Используй markdown разметку для форматирования ответов: **жирный текст**, *курсив*, `код`, списки и т.д.';
+
     if (fileContext) {
       systemMessage += `\n\nПользователь загрузил файл со следующим содержимым:\n${fileContext}\n\nОтвечай на вопросы учитывая содержимое файла. Если в файле нет информации для ответа, сообщи об этом.`;
       console.log('📋 [chat] Контекст файла добавлен в системный промпт');
@@ -61,9 +83,17 @@ export async function POST(request: NextRequest) {
     const assistantMessage = data.choices[0].message.content;
 
     console.log('✅ [chat] Получен ответ от AI, длина:', assistantMessage.length);
+    console.log('📝 [chat] Преобразую markdown в HTML...');
 
-    return NextResponse.json({ 
+    // Преобразуем markdown в HTML
+    const messageHtml = await markdownToHtml(assistantMessage);
+    const sanitizedHtml = sanitizeHtml(messageHtml);
+
+    console.log('🎨 [chat] Markdown преобразован в HTML');
+
+    return NextResponse.json({
       message: assistantMessage,
+      messageHtml: sanitizedHtml,
       chatId: chatId || 'temp-' + Date.now()
     });
 
