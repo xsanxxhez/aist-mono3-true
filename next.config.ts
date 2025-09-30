@@ -1,53 +1,44 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-// Включаем экспериментальные фичи для лучшей совместимости
+// Внешние пакеты для server components
+serverExternalPackages: ['mammoth', 'pdf-parse', '@prisma/client'],
+
+// Экспериментальные фичи
 experimental: {
-serverComponentsExternalPackages: ['mammoth', 'pdf-parse'],
-},
-
-// Настройки API routes
-api: {
-bodyParser: {
-sizeLimit: '10mb', // Увеличиваем лимит для загрузки файлов
-},
-responseLimit: '10mb',
-},
-
-// Настройки Server Actions
 serverActions: {
 bodySizeLimit: '10mb',
 },
+},
 
-// Отключаем strict mode для избежания двойного рендеринга в development
+// Отключаем strict mode
 reactStrictMode: false,
 
 // Настройки для работы с файлами
-webpack: (config, { isServer }) => {
-    // Для обработки бинарных файлов (PDF, Word)
+webpack: (config) => {
     config.module.rules.push({
       test: /\.node$/,
       use: 'node-loader',
     });
-
     return config;
   },
 
   // Настройки для production
   compiler: {
-    // Включаем удаление console.log в production
-    removeConsole: process.env.NODE_ENV === 'production' ? {
-      exclude: ['error', 'warn'],
-    } : false,
+    removeConsole: process.env.NODE_ENV === 'production',
   },
 
-  // Настройки для работы с внешними доменами (если нужно)
+  // Настройки для изображений
   images: {
-    domains: [
-      'lh3.googleusercontent.com', // Google avatars
-      'avatars.githubusercontent.com', // GitHub avatars
-    ],
     remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'avatars.githubusercontent.com',
+      },
       {
         protocol: 'https',
         hostname: '**.googleusercontent.com',
@@ -55,24 +46,17 @@ webpack: (config, { isServer }) => {
     ],
   },
 
-  // Environment variables доступные на клиенте
-  env: {
-    CUSTOM_KEY: process.env.CUSTOM_KEY,
-  },
-
   // Настройки для TypeScript
   typescript: {
-    // В production пропускаем проверку типов для скорости билда
     ignoreBuildErrors: false,
   },
 
   // Настройки для ESLint
   eslint: {
-    // В production пропускаем проверку ESLint для скорости билда
     ignoreDuringBuilds: false,
   },
 
-  // Настройки headers для API routes
+  // Настройки headers
   async headers() {
     return [
       {
@@ -87,13 +71,8 @@ webpack: (config, { isServer }) => {
     ]
   },
 
-  // Настройки для trailing slashes
   trailingSlash: false,
-
-  // Настройки для production optimizations
   poweredByHeader: false,
-
-  // Настройки compression
   compress: true,
 }
 

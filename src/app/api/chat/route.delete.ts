@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db';
 
 export async function DELETE(request: NextRequest) {
   const token = await getToken({ req: request });
-  
+
   if (!token?.sub) {
     return NextResponse.json({ error: 'Не авторизован' }, { status: 401 });
   }
@@ -30,15 +30,16 @@ export async function DELETE(request: NextRequest) {
 
     console.log('🗑️ [chat] Чат удален:', chatId);
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       message: 'Чат успешно удален'
     });
 
   } catch (error) {
     console.error('❌ [chat] Ошибка удаления:', error);
-    
-    if ((error as unknown).code === 'P2025') {
+
+    // Правильная проверка ошибки Prisma
+    if (error instanceof Error && 'code' in error && error.code === 'P2025') {
       return NextResponse.json(
         { error: 'Чат не найден' },
         { status: 404 }

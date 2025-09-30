@@ -7,7 +7,7 @@ import { extractTextFromFile } from '@/lib/fileProcessor';
 export async function POST(request: NextRequest) {
   console.log('🔍 [upload] Запрос получен');
   const token = await getToken({ req: request });
-  
+
   if (!token?.sub) {
     console.log('❌ [upload] Пользователь не авторизован');
     return NextResponse.json({ error: 'Не авторизован' }, { status: 401 });
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     try {
       await mkdir(uploadsDir, { recursive: true });
       console.log('✅ [upload] Директория uploads создана/проверена');
-    } catch (e) {
+    } catch {
       console.log('📁 [upload] Директория uploads уже существует');
     }
 
@@ -43,8 +43,8 @@ export async function POST(request: NextRequest) {
     const timestamp = Date.now();
     const originalName = file.name;
     const safeName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const fileExtension = safeName.split('.').pop() || 
-      (file.type === 'application/pdf' ? 'pdf' : 
+    const fileExtension = safeName.split('.').pop() ||
+      (file.type === 'application/pdf' ? 'pdf' :
        file.type.includes('word') ? 'docx' : 'txt');
     const filename = `${timestamp}-${Math.random().toString(36).substring(7)}.${fileExtension}`;
     const path = join(uploadsDir, filename);
