@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir, existsSync } from 'fs/promises';
+import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { getToken } from 'next-auth/jwt';
 import { extractTextFromFile } from '@/lib/fileProcessor';
 
 export async function POST(request: NextRequest) {
+  console.log('🔍 [upload] Запрос получен');
   const token = await getToken({ req: request });
   
   if (!token?.sub) {
@@ -17,17 +18,17 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File;
     const chatId = formData.get('chatId') as string;
 
+    console.log('📁 [upload] Получен файл:', {
+      name: file?.name,
+      type: file?.type,
+      size: file?.size,
+      chatId: chatId
+    });
+
     if (!file) {
       console.log('❌ [upload] Файл не предоставлен');
       return NextResponse.json({ error: 'Файл не предоставлен' }, { status: 400 });
     }
-
-    console.log('📁 [upload] Начало загрузки:', {
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      chatId: chatId
-    });
 
     // Создаем директорию uploads если её нет
     const uploadsDir = join(process.cwd(), 'uploads');
@@ -42,7 +43,9 @@ export async function POST(request: NextRequest) {
     const timestamp = Date.now();
     const originalName = file.name;
     const safeName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const fileExtension = safeName.split('.').pop() || 'txt';
+    const fileExtension = safeName.split('.').pop() || 
+      (file.type === 'application/pdf' ? 'pdf' : 
+       file.type.includes('word') ? 'docx' : 'txt');
     const filename = `${timestamp}-${Math.random().toString(36).substring(7)}.${fileExtension}`;
     const path = join(uploadsDir, filename);
 
@@ -52,12 +55,6 @@ export async function POST(request: NextRequest) {
     await writeFile(path, buffer);
 
     console.log('💾 [upload] Файл сохранен:', path);
-    console.log('💾 [upload] Размер сохраненного файла:', buffer.length, 'байт');
-
-    // Проверяем что файл действительно сохранился
-    const fs = require('fs');
-    const fileExists = fs.existsSync(path);
-    console.log('🔍 [upload] Файл существует на диске:', fileExists);
 
     // Извлекаем текст
     let fileContent = '';
@@ -79,13 +76,13 @@ export async function POST(request: NextRequest) {
         mimeType: file.type,
         content: fileContent
       },
-      message: 'Файл успешно загружен!'
+      message: 'Файл успешно загружен и обработан!'
     };
 
     console.log('✅ [upload] Успешный результат:', {
       filename: result.file.filename,
-      contentLength: result.file.content.length,
-      contentPreview: result.file.content.substring(0, 100)
+      type: result.file.mimeType,
+      contentLength: result.file.content.length
     });
 
     return NextResponse.json(result);

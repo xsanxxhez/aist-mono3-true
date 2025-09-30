@@ -12,6 +12,7 @@ type Message = {
 type FileContext = {
   content: string
   filename: string
+  fileType: string
 }
 
 export default function ChatPage() {
@@ -22,6 +23,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [chatId, setChatId] = useState<string | null>(null)
   const [fileContext, setFileContext] = useState<FileContext | null>(null)
+  const [uploadStatus, setUploadStatus] = useState<string>('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -47,15 +49,6 @@ export default function ChatPage() {
     setMessages(newMessages)
     setInput('')
     setIsLoading(true)
-
-    console.log('💬 [UI] Отправка сообщения:', {
-      input,
-      fileContext: fileContext ? {
-        filename: fileContext.filename,
-        contentLength: fileContext.content.length,
-        contentPreview: fileContext.content.substring(0, 100)
-      } : 'отсутствует'
-    });
 
     try {
       const response = await fetch('/api/chat', {
@@ -97,6 +90,7 @@ export default function ChatPage() {
     if (!file) return
 
     console.log('📁 [UI] Начало загрузки файла:', file.name, file.type, file.size);
+    setUploadStatus('Загрузка...');
 
     const formData = new FormData()
     formData.append('file', file)
@@ -119,33 +113,67 @@ export default function ChatPage() {
       // Сохраняем контекст файла
       setFileContext({
         content: data.file.content,
-        filename: data.file.originalName
+        filename: data.file.originalName,
+        fileType: data.file.mimeType
       });
 
-      console.log('💾 [UI] FileContext установлен:', {
-        filename: data.file.originalName,
-        contentLength: data.file.content.length,
-        contentPreview: data.file.content.substring(0, 100)
-      });
+      setUploadStatus('Успешно!');
 
       // Добавляем сообщение о загруженном файле
+      const getFileIcon = (mimeType: string) => {
+        if (mimeType === 'application/pdf') return '📕';
+        if (mimeType.includes('word')) return '📘';
+        return '📄';
+      };
+
+      const fileIcon = getFileIcon(data.file.mimeType);
+      
+      // Создаем информативное сообщение о файле
+      let fileInfo = `${fileIcon} Загружен файл: ${data.file.originalName}\n\n`;
+      
+      if (data.file.content.startsWith('[') && data.file.content.endsWith(']')) {
+        // Если это сообщение об ошибке или информации
+        fileInfo += `Статус: ${data.file.content}`;
+      } else {
+        // Если это реальное содержимое файла
+        fileInfo += `Содержимое файла (первые 1000 символов):\n${data.file.content.substring(0, 1000)}`;
+        if (data.file.content.length > 1000) {
+          fileInfo += '\n... [файл продолжается]';
+        }
+      }
+
       const fileMessage: Message = { 
         role: 'user', 
-        content: `Загружен файл: ${data.file.originalName}\n\nСодержимое файла:\n${data.file.content.substring(0, 500)}${data.file.content.length > 500 ? '...' : ''}` 
+        content: fileInfo
       };
       setMessages(prev => [...prev, fileMessage]);
       
-      alert(`Файл "${data.file.originalName}" успешно загружен! Теперь AI будет учитывать его содержимое.`);
+      setTimeout(() => setUploadStatus(''), 3000);
     } catch (error) {
       console.error('❌ [UI] Ошибка загрузки:', error)
+      setUploadStatus('Ошибка!');
       alert(`Ошибка при загрузке файла: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`)
+      setTimeout(() => setUploadStatus(''), 3000);
     }
   }
 
   const clearFileContext = () => {
     setFileContext(null);
-    alert('Контекст файла очищен');
+    setUploadStatus('Контекст очищен');
+    setTimeout(() => setUploadStatus(''), 2000);
   }
+
+  const getFileTypeBadge = (fileType: string) => {
+    if (fileType === 'application/pdf') return 'PDF';
+    if (fileType.includes('word')) return 'Word';
+    return 'Текст';
+  };
+
+  const getFileTypeColor = (fileType: string) => {
+    if (fileType === 'application/pdf') return 'bg-red-100 text-red-800';
+    if (fileType.includes('word')) return 'bg-blue-100 text-blue-800';
+    return 'bg-green-100 text-green-800';
+  };
 
   if (status === 'loading') {
     return (
@@ -166,8 +194,15 @@ export default function ChatPage() {
           <h1 className="text-xl font-semibold">AIst Chat</h1>
           <div className="flex items-center gap-4">
             {fileContext && (
-              <div className="text-sm text-green-600 bg-green-100 px-2 py-1 rounded">
-                📁 {fileContext.filename}
+              <div className={`text-sm px-2 py-1 rounded flex items-center gap-2 ${getFileTypeColor(fileContext.fileType)}`}>
+                <span>
+                  {fileContext.fileType === 'application/pdf' ? '📕' : 
+                   fileContext.fileType.includes('word') ? '📘' : '📄'}
+                </span>
+                <span className="max-w-xs truncate">{fileContext.filename}</span>
+                <span className="text-xs bg-white bg-opacity-50 px-1 rounded">
+                  {getFileTypeBadge(fileContext.fileType)}
+                </span>
               </div>
             )}
             <span className="text-sm text-gray-600">Привет, {session.user?.name}!</span>
@@ -194,10 +229,21 @@ export default function ChatPage() {
                 <div className="text-center text-gray-500 mt-8">
                   <div className="text-2xl mb-2">👋</div>
                   <p>Задайте ваш первый вопрос AI-ассистенту!</p>
-                  <p className="text-sm mt-2">Или загрузите файл для анализа</p>
+                  <div className="text-sm mt-4 space-y-1">
+                    <p>📄 Поддерживаемые форматы:</p>
+                    <div className="flex justify-center gap-4 mt-2">
+                      <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">Текстовые файлы</span>
+                      <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">Word документы</span>
+                      <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs">PDF файлы</span>
+                    </div>
+                  </div>
                   {fileContext && (
                     <div className="mt-4 p-2 bg-blue-50 rounded">
-                      <p className="text-blue-800">📁 Активный файл: {fileContext.filename}</p>
+                      <p className="text-blue-800">
+                        {fileContext.fileType === 'application/pdf' ? '📕' : 
+                         fileContext.fileType.includes('word') ? '📘' : '📄'} 
+                        Активный файл: {fileContext.filename}
+                      </p>
                       <button 
                         onClick={clearFileContext}
                         className="text-sm text-blue-600 underline mt-1"
@@ -247,15 +293,24 @@ export default function ChatPage() {
                   type="file"
                   onChange={handleFileUpload}
                   className="border rounded-lg px-4 py-2 flex-1"
-                  accept=".txt,.md,.json,.csv"
+                  accept=".txt,.md,.json,.pdf,.doc,.docx"
                 />
+                {uploadStatus && (
+                  <span className={`px-3 py-2 rounded ${
+                    uploadStatus.includes('Ошибка') ? 'bg-red-100 text-red-800' : 
+                    uploadStatus.includes('Успешно') ? 'bg-green-100 text-green-800' : 
+                    'bg-blue-100 text-blue-800'
+                  }`}>
+                    {uploadStatus}
+                  </span>
+                )}
                 {fileContext && (
                   <button
                     type="button"
                     onClick={clearFileContext}
-                    className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+                    className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
                   >
-                    Очистить файл
+                    Очистить
                   </button>
                 )}
               </div>
