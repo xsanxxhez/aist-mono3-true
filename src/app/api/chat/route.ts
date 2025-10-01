@@ -10,11 +10,11 @@ async function markdownToHtml(markdown: string): Promise<string> {
     return result.toString();
   } catch (error) {
     console.error('❌ [markdown] Ошибка преобразования:', error);
-    return markdown; // Возвращаем оригинал в случае ошибки
+    return markdown;
   }
 }
 
-// Функция для очистки HTML от потенциально опасных тегов
+// Функция для очистки HTML
 function sanitizeHtml(html: string): string {
   return html
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
@@ -24,33 +24,40 @@ function sanitizeHtml(html: string): string {
 }
 
 export async function POST(request: NextRequest) {
-  const token = await getToken({ req: request });
-
-  if (!token?.sub) {
-    return NextResponse.json({ error: 'Не авторизован' }, { status: 401 });
-  }
-
   try {
+    console.log('🔐 [chat] Проверка авторизации...');
+
+    // Получаем токен с явным указанием секрета
+    const token = await getToken({
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET
+    });
+
+    console.log('🔐 [chat] Токен:', token ? 'получен' : 'отсутствует');
+    console.log('🔐 [chat] User ID из токена:', token?.sub);
+
+    if (!token?.sub) {
+      console.log('❌ [chat] Пользователь не авторизован');
+      return NextResponse.json({ error: 'Не авторизован' }, { status: 401 });
+    }
+
+    console.log('✅ [chat] Пользователь авторизован, ID:', token.sub);
+
     const { messages, chatId, fileContext } = await request.json();
 
     console.log('💬 [chat] Получен запрос:', {
       chatId,
       fileContextLength: fileContext?.length || 0,
-      fileContextPreview: fileContext?.substring(0, 100) || 'нет',
       messagesCount: messages.length
     });
 
-    // Создаем системный промпт с учетом контекста файла
-    let systemMessage = 'Ты полезный AI-ассистент. Отвечай подробно и помогай пользователю. Поддерживай контекст разговора. Используй markdown разметку для форматирования ответов: **жирный текст**, *курсив*, `код`, списки и т.д.';
+    // Создаем системный промпт
+    let systemMessage = 'Ты полезный AI-ассистент. Отвечай подробно и помогай пользователю. Используй markdown разметку для форматирования ответов: **жирный текст**, *курсив*, `код`, списки и т.д.';
 
     if (fileContext) {
       systemMessage += `\n\nПользователь загрузил файл со следующим содержимым:\n${fileContext}\n\nОтвечай на вопросы учитывая содержимое файла. Если в файле нет информации для ответа, сообщи об этом.`;
       console.log('📋 [chat] Контекст файла добавлен в системный промпт');
-    } else {
-      console.log('⚠️ [chat] Контекст файла отсутствует');
     }
-
-    console.log('🔧 [chat] Системный промпт (первые 200 символов):', systemMessage.substring(0, 200));
 
     // Отправляем запрос к OpenRouter
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -83,7 +90,6 @@ export async function POST(request: NextRequest) {
     const assistantMessage = data.choices[0].message.content;
 
     console.log('✅ [chat] Получен ответ от AI, длина:', assistantMessage.length);
-    console.log('📝 [chat] Преобразую markdown в HTML...');
 
     // Преобразуем markdown в HTML
     const messageHtml = await markdownToHtml(assistantMessage);
