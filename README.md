@@ -40,46 +40,7 @@
 - Аккаунт на OpenRouter с API‑ключом
 - (Опционально) Google Cloud OAuth Client для продвинутого входа
 
-### 2. Клонирование и установка
 
-```bash
-git clone <repo-url> aist-mono3-true
-cd aist-mono3-true
-
-npm install
-```
-
-### 3. Настройка базы данных
-
-Создай новую базу:
-
-```bash
-createdb aist_mono3
-```
-
-### 4. Настройка переменных окружения
-
-Создай файл `.env` в корне проекта:
-
-```env
-DATABASE_URL="postgresql://xsan@localhost:5432/aist_mono3?schema=public"
-
-NEXTAUTH_URL="http://localhost:3000"
-NEXTAUTH_SECRET="...случайная_строка_64_символа..."
-
-GOOGLE_CLIENT_ID="your-google-client-id"
-GOOGLE_CLIENT_SECRET="your-google-client-secret"
-
-OPENROUTER_API_KEY="sk-or-ваш-openrouter-key"
-
-NODE_ENV="development"
-```
-
-`NEXTAUTH_SECRET` можно сгенерировать так:
-
-```bash
-openssl rand -base64 32
-```
 
 ### 5. Prisma: генерация и миграции
 
@@ -118,44 +79,6 @@ npm run dev
 - запускает Prisma `generate` и `migrate deploy`;
 - стартует `npm run dev` и пишет логи в `/tmp/aist-mono3-dev.log`.
 
-(Смотри файл `start-aist.sh` в корне проекта.)
-
-***
-
-## Настройка Google OAuth
-
-1. Зайди в Google Cloud Console → **APIs & Services → Credentials**.
-2. Создай **OAuth 2.0 Client ID**:
-    - Application type: **Web application**
-3. В `Authorized JavaScript origins` добавь:
-    - `http://localhost:3000`
-4. В `Authorized redirect URIs` добавь:
-    - `http://localhost:3000/api/auth/callback/google`
-5. Скопируй `Client ID` и `Client Secret` в `.env` (`GOOGLE_CLIENT_ID` и `GOOGLE_CLIENT_SECRET`).
-
-***
-
-## Поведение AI / препромт
-
-Системное сообщение для AI задаётся в `src/app/api/chat/route.ts`:
-
-```ts
-let systemMessage = `
-Ты — /AIST, цифровой ассистент и помощник по Беларуси.
-
-Твоя роль:
-- Помогаешь пользователю разбираться в бытовых, юридических, технологических и жизненных вопросах, особенно в контексте Беларуси.
-- Объясняешь сложные вещи простыми словами.
-- Пишешь структурированные ответы в вежливом, спокойном и немного неформальном тоне.
-
-Правила общения:
-- Говори от первого лица: "Я — /AIST, цифровой ассистент".
-- Используй markdown.
-- Если информации не хватает, честно говори об этом и предлагай, что можно уточнить.
-`.trim();
-```
-
-При наличии загруженного файла содержимое файла добавляется в контекст в этом же эндпоинте.
 
 ***
 
@@ -171,19 +94,20 @@ let systemMessage = `
 
 ## Скриншоты
 
-Оставь сюда несколько блоков с изображениями после того, как сделаешь скрины интерфейса:
 
-### Скриншот: Главный экран чата
+### Главный экран 
+<img width="1710" height="1107" alt="image" src="https://github.com/user-attachments/assets/acb770df-cbdd-4311-9052-d75e9a206c40" />
 
-> _здесь будет скриншот общего вида интерфейса_
 
-### Скриншот: Чат с ответом AI
 
-> _здесь будет скриншот диалога с /AIST_
 
-### Скриншот: Загрузка файла и контекст
+### Чат с ответом AI
+<img width="1710" height="1107" alt="image" src="https://github.com/user-attachments/assets/7135bc9d-4aa9-4e49-b3e4-5324e74ba913" />
 
-> _здесь будет скриншот с загруженным документом и ответом по нему_
+
+### Загрузка файла и контекст
+
+<img width="1710" height="1107" alt="image" src="https://github.com/user-attachments/assets/b0f276e8-4acf-4e13-88ce-e324842513ab" />
 
 ***
 
