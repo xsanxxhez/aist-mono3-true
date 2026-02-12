@@ -1,36 +1,195 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# /AIST – Цифровой ассистент на Next.js + Prisma
 
-## Getting Started
+/AIST — это монолитное приложение на Next.js с авторизацией через Google (NextAuth), базой данных на PostgreSQL и AI‑чатом, который использует OpenRouter (модель `deepseek/deepseek-chat`) и умеет работать с загруженными файлами (PDF, DOCX, текст и изображения).
 
-First, run the development server:
+***
+
+## Возможности
+
+- Авторизация через Google (NextAuth, JWT‑сессии).
+- Личный чат с AI‑ассистентом **/AIST**:
+    - отвечает в стиле «цифровой ассистент и помощник по Беларуси»;
+    - поддерживает markdown‑форматирование (заголовки, списки, код и т.д.).
+- Загрузка файлов:
+    - PDF, Word, текстовые файлы, изображения;
+    - контент файла попадает в контекст для модели.
+- История чатов:
+    - сохранение чатов и сообщений в PostgreSQL (через Prisma);
+    - возможность удалять чаты.
+
+***
+
+## Технологии
+
+- **Next.js 15** (App Router, `src/app`)
+- **React 19**
+- **NextAuth** (Google OAuth, JWT‑сессии)
+- **Prisma ORM** + PostgreSQL
+- **OpenRouter** (модель `deepseek/deepseek-chat`)
+- Парсинг и рендеринг markdown: `remark`, `remark-html`
+
+***
+
+## Быстрый старт (локальная разработка)
+
+### 1. Предварительные требования
+
+- Node.js (18+)
+- PostgreSQL (например, установлено через Homebrew на macOS):
+    - сервис на порту `5432`
+- Аккаунт на OpenRouter с API‑ключом
+- (Опционально) Google Cloud OAuth Client для продвинутого входа
+
+### 2. Клонирование и установка
+
+```bash
+git clone <repo-url> aist-mono3-true
+cd aist-mono3-true
+
+npm install
+```
+
+### 3. Настройка базы данных
+
+Создай новую базу:
+
+```bash
+createdb aist_mono3
+```
+
+### 4. Настройка переменных окружения
+
+Создай файл `.env` в корне проекта:
+
+```env
+DATABASE_URL="postgresql://xsan@localhost:5432/aist_mono3?schema=public"
+
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="...случайная_строка_64_символа..."
+
+GOOGLE_CLIENT_ID="your-google-client-id"
+GOOGLE_CLIENT_SECRET="your-google-client-secret"
+
+OPENROUTER_API_KEY="sk-or-ваш-openrouter-key"
+
+NODE_ENV="development"
+```
+
+`NEXTAUTH_SECRET` можно сгенерировать так:
+
+```bash
+openssl rand -base64 32
+```
+
+### 5. Prisma: генерация и миграции
+
+```bash
+npx prisma generate
+npx prisma migrate deploy
+```
+
+База будет создана на основе `prisma/schema.prisma` и миграций в `prisma/migrations`.
+
+### 6. Запуск dev‑сервера
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Приложение будет доступно по адресу:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- фронтенд + API: `http://localhost:3000`
+- NextAuth коллбек: `http://localhost:3000/api/auth/callback/google`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+***
 
-## Learn More
+## Скрипт запуска
 
-To learn more about Next.js, take a look at the following resources:
+В проекте можно добавить удобный скрипт `start-aist.sh`:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+./start-aist.sh
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Он:
 
-## Deploy on Vercel
+- проверяет, что PostgreSQL запущен;
+- проверяет наличие `.env`;
+- запускает Prisma `generate` и `migrate deploy`;
+- стартует `npm run dev` и пишет логи в `/tmp/aist-mono3-dev.log`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+(Смотри файл `start-aist.sh` в корне проекта.)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+***
+
+## Настройка Google OAuth
+
+1. Зайди в Google Cloud Console → **APIs & Services → Credentials**.
+2. Создай **OAuth 2.0 Client ID**:
+    - Application type: **Web application**
+3. В `Authorized JavaScript origins` добавь:
+    - `http://localhost:3000`
+4. В `Authorized redirect URIs` добавь:
+    - `http://localhost:3000/api/auth/callback/google`
+5. Скопируй `Client ID` и `Client Secret` в `.env` (`GOOGLE_CLIENT_ID` и `GOOGLE_CLIENT_SECRET`).
+
+***
+
+## Поведение AI / препромт
+
+Системное сообщение для AI задаётся в `src/app/api/chat/route.ts`:
+
+```ts
+let systemMessage = `
+Ты — /AIST, цифровой ассистент и помощник по Беларуси.
+
+Твоя роль:
+- Помогаешь пользователю разбираться в бытовых, юридических, технологических и жизненных вопросах, особенно в контексте Беларуси.
+- Объясняешь сложные вещи простыми словами.
+- Пишешь структурированные ответы в вежливом, спокойном и немного неформальном тоне.
+
+Правила общения:
+- Говори от первого лица: "Я — /AIST, цифровой ассистент".
+- Используй markdown.
+- Если информации не хватает, честно говори об этом и предлагай, что можно уточнить.
+`.trim();
+```
+
+При наличии загруженного файла содержимое файла добавляется в контекст в этом же эндпоинте.
+
+***
+
+## API эндпоинты (основные)
+
+- `POST /api/auth/[...nextauth]` — авторизация (NextAuth)
+- `POST /api/chat` — отправка сообщений в чат:
+    - тело: `{ messages, chatId?, fileContext? }`
+- `DELETE /api/chat?id=<chatId>` — удаление чата
+- `POST /api/upload` — загрузка файлов и извлечение контента
+
+***
+
+## Скриншоты
+
+Оставь сюда несколько блоков с изображениями после того, как сделаешь скрины интерфейса:
+
+### Скриншот: Главный экран чата
+
+> _здесь будет скриншот общего вида интерфейса_
+
+### Скриншот: Чат с ответом AI
+
+> _здесь будет скриншот диалога с /AIST_
+
+### Скриншот: Загрузка файла и контекст
+
+> _здесь будет скриншот с загруженным документом и ответом по нему_
+
+***
+
+## TODO / идеи для развития
+
+- История чатов с боковой панелью.
+- Выбор моделей OpenRouter и режимов (Беларусь / общий мир / техподдержка).
+- Лимиты на размер файлов и более умная обработка больших документов.
+- Локализация интерфейса (RU/EN switch).
