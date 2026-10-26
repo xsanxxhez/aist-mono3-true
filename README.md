@@ -1,110 +1,198 @@
-# /AIST — Digital Assistant built with Next.js + Prisma
+# /AIST — Belarus-focused Digital Assistant
 
-/AIST is a monolithic Next.js application featuring Google authentication (NextAuth), a PostgreSQL database, and an AI chat powered by OpenRouter (model: `deepseek/deepseek-chat`). It also supports working with uploaded files (PDF, DOCX, text, and images) by injecting file content into the model context.
+/AIST — веб-приложение для диалога с AI и работы с документами. Проект объединяет Next.js, PostgreSQL и собственный модельный backend на базе Qwen2.5-7B-Instruct, адаптированной под белорусские пользовательские сценарии с помощью SFT и QLoRA. Исходная интеграция с DeepSeek через OpenRouter сохранена как альтернативный backend.
 
-***
+## Суть проекта
 
-## Features
+Универсальный чат был расширен локальным ML-компонентом. Ассистент обучался объяснять материалы простым языком, учитывать белорусский контекст, задавать уточняющие вопросы и отвечать по предоставленным документам. Актуальные сведения передаются в контексте: fine-tuning не заменяет обновление источников.
 
-- Google sign-in (NextAuth, JWT sessions).
-- Personal chat with the **/AIST** assistant:
-  - responds in the style of a “digital assistant and Belarus-focused helper”;
-  - supports Markdown formatting (headings, lists, code blocks, etc.).
-- File uploads:
-  - PDF, Word documents, text files, images;
-  - extracted file content is added to the model context.
-- Chat history:
-  - chats and messages are stored in PostgreSQL (via Prisma);
-  - chats can be deleted.
+## Возможности
 
-***
+- Google OAuth через NextAuth; JWT-сессии.
+- Персональные чаты и сообщения в PostgreSQL через Prisma.
+- Markdown-ответы: заголовки, списки, код.
+- Загрузка PDF, DOCX, текстовых файлов и изображений.
+- Передача извлечённого содержимого в контекст генерации.
+- Удаление чатов.
+- Локализованный модельный backend: Qwen2.5-7B-Instruct + LoRA.
+- Альтернативный backend: deepseek/deepseek-chat через OpenRouter.
 
-## Tech Stack
+Поддержка загрузки изображения не означает, что текстовая Qwen самостоятельно распознаёт его содержимое. Для содержательного анализа изображения требуется отдельное OCR/vision-извлечение; его результат передаётся текстовой модели.
 
-- **Next.js 15** (App Router, `src/app`)
-- **React 19**
-- **NextAuth** (Google OAuth, JWT sessions)
-- **Prisma ORM** + PostgreSQL
-- **OpenRouter** (model `deepseek/deepseek-chat`)
-- Markdown parsing/rendering: `remark`, `remark-html`
+## Стек
 
-***
+| Компонент | Технологии |
+|---|---|
+| Web | Next.js 15, App Router, React 19 |
+| Авторизация | NextAuth, Google OAuth, JWT |
+| База | PostgreSQL, Prisma |
+| Исходный LLM backend | OpenRouter, deepseek/deepseek-chat |
+| Адаптированная модель | Qwen2.5-7B-Instruct + LoRA |
+| Обучение | Python, Transformers, PEFT, TRL, bitsandbytes |
+| Inference | Отдельный OpenAI-совместимый сервис; vLLM |
+| Markdown | remark, remark-html |
 
-## Quick Start (Local Development)
+## Архитектура
 
-### 1) Prerequisites
+```text
+Browser
+  -> Next.js: UI + API + NextAuth
+       -> Prisma -> PostgreSQL
+       -> Upload -> Extracted text -> Model context
+       -> Model backend
+            -> OpenRouter -> DeepSeek
+            -> OpenAI-compatible endpoint -> Qwen + LoRA
+```
 
-- Node.js (18+)
-- PostgreSQL (e.g., installed via Homebrew on macOS):
-  - service running on port `5432`
-- OpenRouter account + API key
-- (Optional) Google Cloud OAuth Client for Google login
+Веб-часть остаётся монолитным Next.js-приложением. Обучение и GPU inference вынесены за её пределы.
 
-### 5) Prisma: Generate + Migrations
+## Fine-tuning
+
+### Данные
+
+Корпус собирался из отобранных материалов с подходящими условиями использования и собственных примеров:
+
+- МНС Беларуси: разъяснения для физических лиц, налоги, фриланс и самостоятельная деятельность.
+- Приёмные комиссии и университеты: правила поступления, инструкции и FAQ; в частности материалы БГУ.
+- Белстат: статистические таблицы, пояснения к показателям и задания на интерпретацию данных.
+- Собственная разметка: уточнения, разговорные запросы, объяснение документов и ответы при недостатке информации.
+
+Источники для проверки происхождения материалов: МНС — https://nalog.gov.by/individuals/ и https://nalog.gov.by/question-answer/; БГУ — https://abiturient.bsu.by/; Белстат — https://www.belstat.gov.by/ofitsialnaya-statistika/bazy-dannyh/.
+
+Общедоступность не приравнивалась к автоматическому разрешению на обучение: условия использования проверялись отдельно. Метаданные включали источник, дату получения и дату публикации при её наличии.
+
+### Подготовка
+
+1. Извлечение и нормализация текста.
+2. Удаление технического мусора, дубликатов и персональных данных.
+3. Разбиение на смысловые фрагменты.
+4. Подготовка диалогов «контекст — вопрос — ответ».
+5. Проверка ответов по оригиналу.
+6. Разделение train / validation / test по исходным документам.
+
+```json
+{"messages":[{"role":"system","content":"Ты /AIST. Отвечай по источнику; не добавляй отсутствующие требования."},{"role":"user","content":"Контекст: [фрагмент документа]. Вопрос: Объясни порядок действий."},{"role":"assistant","content":"По предоставленному документу порядок следующий: ..."}]}
+```
+
+### Метод
+
+Использовался SFT с QLoRA. Базовые веса загружались в 4-битном представлении; обучались LoRA-адаптеры. Стек обучения: Transformers, PEFT, TRL и bitsandbytes. Результатом являлся адаптер к зафиксированной ревизии базовой Qwen.
+
+Число примеров, гиперпараметры, GPU и длительность обучения следует брать из сохранённых конфигураций и журналов эксперимента; эта документация не подменяет их предположениями.
+
+### Оценка
+
+Базовая Qwen и Qwen с адаптером сравнивались на одинаковом отложенном наборе, с одинаковыми prompt и контекстом. Отдельно проводилось сравнение с исходным DeepSeek backend.
+
+Критерии: верность источнику, локальный контекст, отсутствие выдуманных требований, корректные уточнения, читаемость ответа. Отбор адаптера проводился по результатам проверки. Численные улучшения и live A/B-тестирование не заявляются без соответствующих результатов.
+
+## Локальный запуск веб-приложения
+
+### Требования
+
+- Node.js, совместимый с Next.js 15 и зависимостями проекта.
+- PostgreSQL.
+- npm.
+- Google OAuth credentials для входа.
+- OpenRouter API key или доступный собственный inference endpoint.
+
+### Установка
+
+```bash
+npm install
+```
+
+### Переменные окружения
+
+Ниже приведён шаблон конфигурации. Имена переменных модельного слоя необходимо согласовать с реализацией проекта.
+
+```dotenv
+DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/aist
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=replace-with-a-random-secret
+GOOGLE_CLIENT_ID=replace-me
+GOOGLE_CLIENT_SECRET=replace-me
+
+OPENROUTER_API_KEY=replace-me
+OPENROUTER_MODEL=deepseek/deepseek-chat
+
+LLM_BACKEND=local
+LOCAL_LLM_BASE_URL=http://localhost:8000/v1
+LOCAL_LLM_API_KEY=replace-with-your-service-key
+LOCAL_LLM_MODEL=aist-qwen
+```
+
+Не коммитьте `.env` и ключи. Для Google OAuth используйте callback:
+
+```text
+http://localhost:3000/api/auth/callback/google
+```
+
+### Prisma и запуск
 
 ```bash
 npx prisma generate
 npx prisma migrate deploy
-```
-
-The database schema is generated from `prisma/schema.prisma` and migrations in `prisma/migrations`.
-
-### 6) Run the dev server
-
-```bash
 npm run dev
 ```
 
-The application will be available at:
+Приложение: http://localhost:3000. `migrate deploy` применяет уже существующие миграции из `prisma/migrations`.
 
-- frontend + API: `http://localhost:3000`
-- NextAuth callback: `http://localhost:3000/api/auth/callback/google`
+## Inference-сервис
 
-***
-
-## Launch Script
-
-You can add a convenient script called `start-aist.sh`:
+Обученный адаптер развёртывается отдельно от Next.js. Ниже — пример запуска через vLLM; путь к адаптеру и параметры инфраструктуры нужно заменить фактическими.
 
 ```bash
-./start-aist.sh
+vllm serve Qwen/Qwen2.5-7B-Instruct \
+  --enable-lora \
+  --lora-modules aist-qwen=/path/to/aist-adapter \
+  --api-key YOUR_SERVICE_KEY \
+  --port 8000
 ```
 
-It will:
+Это пример LoRA-serving базовой модели, а не команда запуска 4-битного обучающего процесса. Режим квантизации inference настраивается и проверяется отдельно.
 
-- verify that PostgreSQL is running;
-- verify that a `.env` file exists;
-- run `prisma generate` and `prisma migrate deploy`;
-- start `npm run dev` and write logs to `/tmp/aist-mono3-dev.log`.
+Backend отправляет запросы на `/v1/chat/completions`, используя имя адаптера в поле `model`. Inference endpoint не должен быть общедоступным без аутентификации и ограничений.
 
-***
+## API
 
-## API Endpoints (Main)
+| Метод | Endpoint | Назначение |
+|---|---|---|
+| GET / POST | `/api/auth/[...nextauth]` | Маршруты NextAuth |
+| POST | `/api/chat` | Диалог с моделью |
+| DELETE | `/api/chat?id=<chatId>` | Удаление чата |
+| POST | `/api/upload` | Загрузка и извлечение содержимого |
 
-- `POST /api/auth/[...nextauth]` — authentication (NextAuth)
-- `POST /api/chat` — send messages to the chat:
-  - body: `{ messages, chatId?, fileContext? }`
-- `DELETE /api/chat?id=<chatId>` — delete a chat
-- `POST /api/upload` — upload files and extract content
+Пример тела запроса чата:
 
-***
+```json
+{"messages":[{"role":"user","content":"Объясни этот документ"}],"chatId":"optional-chat-id","fileContext":"Извлечённый текст"}
+```
 
-## Screenshots
+Входной API приложения сохраняет привычный контракт; преобразование запроса под выбранный модельный backend выполняется на сервере.
 
-### Main screen
-<img width="1710" height="1107" alt="image" src="https://github.com/user-attachments/assets/acb770df-cbdd-4311-9052-d75e9a206c40" />
+## Оптимизация и эксплуатация
 
-### Chat with AI response
-<img width="1710" height="1107" alt="image" src="https://github.com/user-attachments/assets/7135bc9d-4aa9-4e49-b3e4-5324e74ba913" />
+В модельном слое разделены обучение и обслуживание запросов. Ограничение истории, длины ответа и объёма файлового контекста позволяет контролировать нагрузку. Streaming и параметры batching проверяются на конкретном inference-развёртывании; выигрыш по скорости не предполагается автоматически из наличия QLoRA.
 
-### File upload + context
-<img width="1710" height="1107" alt="image" src="https://github.com/user-attachments/assets/b0f276e8-4acf-4e13-88ce-e324842513ab" />
+Для воспроизводимости нужны версия базовой модели, версия адаптера, конфигурация обучения, версия датасета и результаты оценки.
 
-***
+## Ограничения
 
-## TODO / Future Ideas
+- Модель не заменяет профессиональную юридическую или налоговую консультацию.
+- Изменяющиеся правила и показатели требуют актуального контекста.
+- Передача текста файла в prompt — не fine-tuning и не полноценная RAG-система.
+- Качество белорусского языка оценивается отдельно от русского.
+- Изображения требуют OCR/vision для извлечения содержания.
+- Открытые веса не делают GPU и хостинг бесплатными.
 
-- Chat history with a sidebar.
-- Model selection in OpenRouter and “modes” (Belarus / global / tech support).
-- File size limits and smarter handling of large documents.
-- UI localization (RU/EN switch).
+## Дальнейшее развитие
+
+- Боковая панель истории чатов.
+- Выбор модели и режимов работы.
+- RU/EN-локализация интерфейса.
+- Ограничения размера файлов и обработка больших документов.
+- Поиск по обновляемой базе источников.
+- Автоматизированный регрессионный набор и версионирование экспериментов.
+
+
